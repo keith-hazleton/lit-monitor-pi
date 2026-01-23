@@ -1,0 +1,110 @@
+name: Weekly Literature Scan
+
+on:
+  # Run every Monday at 8am UTC (adjust to your timezone)
+  schedule:
+    - cron: '0 8 * * 1'
+
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days to look back'
+        required: false
+        default: '7'
+      send_email:
+        description: 'Send email digest'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Download database artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          name: papers-database
+          path: data/
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Run literature scan
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+        run: |
+          DAYS=${{ github.event.inputs.days || '7' }}
+          echo "Searching for papers from the last $DAYS days..."
+          python main.py --pubmed-only --days $DAYS --skip-ranking
+
+      - name: Rank new papers with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "Ranking papers with Claude..."
+          python main.py --rank-only --rank-limit 50
+
+      - name: Generate digest
+        env:
+          ZOTERO_WORKER_URL: ${{ secrets.ZOTERO_WORKER_URL }}
+          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+        run: |
+          DAYS=${{ github.event.inputs.days || '7' }}
+          echo "Generating digest..."
+          python main.py --digest --days $DAYS
+
+      - name: Send email digest
+        if: ${{ github.event.inputs.send_email != 'false' }}
+        env:
+          ZOTERO_WORKER_URL: ${{ secrets.ZOTERO_WORKER_URL }}
+          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          DAYS=${{ github.event.inputs.days || '7' }}
+          python main.py --digest --days $DAYS --send-email
+        continue-on-error: true
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: papers-database
+          path: data/papers.db
+          retention-days: 90
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ github.run_number }}
+          path: output/*.html
+          retention-days: 30
+
+      - name: Print summary
+        run: |
+          echo "## Literature Scan Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python main.py --stats >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Literature Monitor - Config Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Literature Monitor</h1>
+            <p class="subtitle">Configuration Editor</p>
+        </header>
+
+        <!-- Stats Banner -->
+        <div class="stats-banner">
+            <div class="stat">
+                <span class="stat-value">{{ stats.get('total_papers', 0) }}</span>
+                <span class="stat-label">Papers</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">{{ stats.get('ranked_papers', 0) }}</span>
+                <span class="stat-label">Ranked</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">{{ stats.get('high_priority', 0) }}</span>
+                <span class="stat-label">High Priority</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">{{ stats.get('total_runs', 0) }}</span>
+                <span class="stat-label">Search Runs</span>
+            </div>
+        </div>
+
+        <!-- Search Queries -->
+        <section class="card">
+            <h2>Search Queries</h2>
+            <p class="description">PubMed/bioRxiv search terms. One per line.</p>
+            <textarea id="queries" rows="6" placeholder="Enter search queries...">{% for q in config.get('search_queries', []) %}{{ q }}
+{% endfor %}</textarea>
+            <button onclick="saveQueries()" class="btn btn-primary">Save Queries</button>
+        </section>
+
+        <!-- Watched Authors -->
+        <section class="card">
+            <h2>Watched Authors</h2>
+            <p class="description">Authors to highlight. Format: "LastName Initials" (e.g., "Sokol RJ")</p>
+            <textarea id="authors" rows="4" placeholder="Enter author names...">{% for a in config.get('watched_authors', []) %}{{ a }}
+{% endfor %}</textarea>
+            <button onclick="saveAuthors()" class="btn btn-primary">Save Authors</button>
+        </section>
+
+        <!-- Active Projects -->
+        <section class="card">
+            <h2>Active Projects</h2>
+            <p class="description">Research projects with keywords for relevance matching.</p>
+            <div id="projects-container">
+                {% for project in config.get('active_projects', []) %}
+                <div class="project-item" data-index="{{ loop.index0 }}">
+                    <input type="text" class="project-name" value="{{ project.name }}" placeholder="Project name">
+                    <textarea class="project-keywords" rows="2" placeholder="Keywords (comma-separated)">{{ project.keywords | join(', ') }}</textarea>
+                    <button onclick="removeProject(this)" class="btn btn-danger btn-small">Remove</button>
+                </div>
+                {% endfor %}
+            </div>
+            <button onclick="addProject()" class="btn btn-secondary">+ Add Project</button>
+            <button onclick="saveProjects()" class="btn btn-primary">Save Projects</button>
+        </section>
+
+        <!-- Journal Weights -->
+        <section class="card">
+            <h2>Journal Weights</h2>
+            <p class="description">Multipliers for ranking scores. High trust = 1.5x, Low trust = 0.5x</p>
+
+            <h3>High Trust Journals (1.5x)</h3>
+            <textarea id="journals-high" rows="4" placeholder="One journal per line...">{% for j in config.get('journal_weights', {}).get('high_trust', {}).get('journals', []) %}{{ j }}
+{% endfor %}</textarea>
+
+            <h3>Low Trust Journals (0.5x)</h3>
+            <textarea id="journals-low" rows="3" placeholder="One journal per line...">{% for j in config.get('journal_weights', {}).get('low_trust', {}).get('journals', []) %}{{ j }}
+{% endfor %}</textarea>
+
+            <button onclick="saveJournals()" class="btn btn-primary">Save Journal Weights</button>
+        </section>
+
+        <!-- Settings -->
+        <section class="card">
+            <h2>Settings</h2>
+            <div class="settings-grid">
+                <label>
+                    <span>Max results per query</span>
+                    <input type="number" id="setting-max-results"
+                           value="{{ config.get('settings', {}).get('max_results_per_query', 100) }}" min="1" max="500">
+                </label>
+                <label>
+                    <span>Days to look back</span>
+                    <input type="number" id="setting-days"
+                           value="{{ config.get('settings', {}).get('days_lookback', 7) }}" min="1" max="90">
+                </label>
+                <label>
+                    <span>Min relevance score</span>
+                    <input type="number" id="setting-min-score"
+                           value="{{ config.get('settings', {}).get('min_relevance_score', 0.3) }}" min="0" max="1" step="0.1">
+                </label>
+            </div>
+            <button onclick="saveSettings()" class="btn btn-primary">Save Settings</button>
+        </section>
+
+        <!-- Actions -->
+        <section class="card actions">
+            <h2>Actions</h2>
+            <div class="action-buttons">
+                <button onclick="testConfig()" class="btn btn-secondary">Test Config</button>
+                <button onclick="refreshStats()" class="btn btn-secondary">Refresh Stats</button>
+            </div>
+            <div id="action-result"></div>
+        </section>
+
+        <footer>
+            <p>Config file: <code>config/config.yaml</code></p>
+        </footer>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // Toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // API helper
+        async function apiPost(endpoint, data) {
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                if (result.status === 'ok') {
+                    showToast('Saved successfully!');
+                } else {
+                    showToast(result.message || 'Error saving', 'error');
+                }
+                return result;
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        // Save functions
+        function saveQueries() {
+            const text = document.getElementById('queries').value;
+            const queries = text.split('\n').map(q => q.trim()).filter(q => q);
+            apiPost('/api/queries', { queries });
+        }
+
+        function saveAuthors() {
+            const text = document.getElementById('authors').value;
+            const authors = text.split('\n').map(a => a.trim()).filter(a => a);
+            apiPost('/api/authors', { authors });
+        }
+
+        function saveProjects() {
+            const projects = [];
+            document.querySelectorAll('.project-item').forEach(item => {
+                const name = item.querySelector('.project-name').value.trim();
+                const keywordsText = item.querySelector('.project-keywords').value;
+                const keywords = keywordsText.split(',').map(k => k.trim()).filter(k => k);
+                if (name) {
+                    projects.push({ name, keywords });
+                }
+            });
+            apiPost('/api/projects', { projects });
+        }
+
+        function addProject() {
+            const container = document.getElementById('projects-container');
+            const div = document.createElement('div');
+            div.className = 'project-item';
+            div.innerHTML = `
+                <input type="text" class="project-name" placeholder="Project name">
+                <textarea class="project-keywords" rows="2" placeholder="Keywords (comma-separated)"></textarea>
+                <button onclick="removeProject(this)" class="btn btn-danger btn-small">Remove</button>
+            `;
+            container.appendChild(div);
+        }
+
+        function removeProject(btn) {
+            btn.parentElement.remove();
+        }
+
+        function saveJournals() {
+            const highText = document.getElementById('journals-high').value;
+            const lowText = document.getElementById('journals-low').value;
+
+            const highJournals = highText.split('\n').map(j => j.trim()).filter(j => j);
+            const lowJournals = lowText.split('\n').map(j => j.trim()).filter(j => j);
+
+            apiPost('/api/journals', {
+                journal_weights: {
+                    high_trust: { weight: 1.5, journals: highJournals },
+                    low_trust: { weight: 0.5, journals: lowJournals }
+                }
+            });
+        }
+
+        function saveSettings() {
+            const settings = {
+                max_results_per_query: parseInt(document.getElementById('setting-max-results').value),
+                days_lookback: parseInt(document.getElementById('setting-days').value),
+                min_relevance_score: parseFloat(document.getElementById('setting-min-score').value)
+            };
+            apiPost('/api/settings', { settings });
+        }
+
+        async function testConfig() {
+            const result = document.getElementById('action-result');
+            result.innerHTML = 'Testing...';
+            try {
+                const response = await fetch('/api/test-config');
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    result.innerHTML = `<span class="success">Config valid: ${data.queries} queries, ${data.authors} authors, ${data.projects} projects</span>`;
+                } else {
+                    result.innerHTML = `<span class="error">Error: ${data.message}</span>`;
+                }
+            } catch (e) {
+                result.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
+        }
+
+        async function refreshStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                if (data.stats) {
+                    document.querySelectorAll('.stat-value')[0].textContent = data.stats.total_papers || 0;
+                    document.querySelectorAll('.stat-value')[1].textContent = data.stats.ranked_papers || 0;
+                    document.querySelectorAll('.stat-value')[2].textContent = data.stats.high_priority || 0;
+                    document.querySelectorAll('.stat-value')[3].textContent = data.stats.total_runs || 0;
+                    showToast('Stats refreshed');
+                }
+            } catch (e) {
+                showToast('Error refreshing stats', 'error');
+            }
+        }
+    </script>
+</body>
+</html>

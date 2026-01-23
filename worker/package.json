@@ -1,0 +1,14 @@
+{
+  "name": "lit-monitor-zotero-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for one-click Zotero paper import",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
