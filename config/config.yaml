@@ -1,69 +1,77 @@
-# Literature Monitor Configuration
-# Edit this file to customize your paper searches
-
 search_queries:
-  - "biliary atresia gut microbiome"
-  - "PFIC bile acid"
-  - "Alagille syndrome liver"
-  - "pediatric liver transplant rejection"
-  - "gut-liver axis inflammation"
-
+- biliary atresia gut microbiome
+- progressive familial intrahepatic cholestasis
+- cholestasis liver transplant
+- cholestasis inflammation
+- cholestatic liver disease
+- Alagille syndrome liver
+- pediatric liver transplant rejection
+- gut-liver axis inflammation
+- clostridioides difficile diet microbiome
+- clostridioides difficile bile acid
 watched_authors:
-  - "Sokol RJ"
-  - "Shneider BL"
-  # Add more authors you want to track
-
+- Sokol RJ
+- Shneider BL
+- hall cht
+- wells rg
+- Tessier me
+- bajaj js
+- scandal b
 journal_weights:
-  # Multipliers for ranking score (1.0 = neutral)
   high_trust:
     weight: 1.5
     journals:
-      - "Hepatology"
-      - "Journal of Hepatology"
-      - "Gastroenterology"
-      - "Nature Medicine"
-      - "The New England Journal of Medicine"
-      - "Gut"
-      - "Nature"
-      - "Science"
-      - "Cell"
+    - Hepatology
+    - Journal of Hepatology
+    - Gastroenterology
+    - Nature Medicine
+    - The New England Journal of Medicine
+    - Gut
+    - Nature
+    - Science
+    - Cell
+    - Liver Transplantation
+    - Hepatology Communications
+    - Gut
+    - Lancet
   low_trust:
     weight: 0.5
     journals:
-      - "World Journal of Gastroenterology"
-      # Add journals you trust less
-
+    - World Journal of Gastroenterology
 active_projects:
-  - name: "Gut barrier in biliary atresia"
-    keywords:
-      - "tight junction"
-      - "intestinal permeability"
-      - "LPS"
-      - "bacterial translocation"
-      - "zonulin"
-      - "claudin"
-
-  - name: "CAR-T for AIH"
-    keywords:
-      - "CAR-T"
-      - "autoimmune hepatitis"
-      - "regulatory T cell"
-      - "Treg"
-      - "chimeric antigen receptor"
-
-  - name: "Post-transplant rejection mechanisms"
-    keywords:
-      - "rejection"
-      - "liver transplant"
-      - "alloimmunity"
-      - "DSA"
-      - "donor-specific antibodies"
-      - "graft dysfunction"
-
-# Optional settings (can also be set via environment variables)
+- name: Gut barrier in biliary atresia
+  keywords:
+  - tight junction
+  - intestinal permeability
+  - LPS
+  - bacterial translocation
+  - zonulin
+  - claudin
+- name: CAR-T for AIH
+  keywords:
+  - CAR-T
+  - autoimmune hepatitis
+  - regulatory T cell
+  - Treg
+  - chimeric antigen receptor
+- name: Post-transplant rejection mechanisms
+  keywords:
+  - rejection
+  - liver transplant
+  - alloimmunity
+  - DSA
+  - donor-specific antibodies
+  - graft dysfunction
+- name: Dietary supplements for the treatment of Clostridioides difficile infection
+  keywords:
+  - microbiome
+  - bile acids
+  - butyrate
+  - IL-22
+  - tight junction
+  - fiber
+  - short chain fatty acid
 settings:
   max_results_per_query: 100
   days_lookback: 7
   min_relevance_score: 0.3
-  # email_to: your@email.com
-  # email_from: lit-monitor@yourdomain.com
