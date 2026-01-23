@@ -1,19 +1,24 @@
 /**
- * Cloudflare Worker for one-click Zotero paper import
+ * Cloudflare Worker for one-click Zotero paper import + Capacities integration
  *
  * Uses HMAC-signed URLs to prevent unauthorized requests.
  *
  * Endpoints:
- *   GET /add?data=<base64>&ts=<timestamp>&sig=<signature> - Add paper to Zotero
+ *   GET /add?data=<base64>&ts=<timestamp>&sig=<signature> - Add paper to Zotero & Capacities
  *   GET /health - Health check
  *
  * Required secrets (set via `wrangler secret put`):
  *   ZOTERO_API_KEY - Your Zotero API key
  *   ZOTERO_USER_ID - Your Zotero user ID
  *   SIGNING_SECRET - Secret for HMAC signatures (generate with: openssl rand -hex 32)
+ *
+ * Optional secrets for Capacities integration:
+ *   CAPACITIES_API_TOKEN - Your Capacities API token
+ *   CAPACITIES_SPACE_ID - Your Capacities space ID
  */
 
 const ZOTERO_API_BASE = 'https://api.zotero.org';
+const CAPACITIES_API_BASE = 'https://api.capacities.io';
 const URL_EXPIRY_HOURS = 168; // Links valid for 7 days
 
 export default {
@@ -138,7 +143,13 @@ async function handleAddPaper(url, env, corsHeaders) {
     ? `https://www.zotero.org/users/${env.ZOTERO_USER_ID}/items/${itemKey}`
     : null;
 
-  return htmlResponse(renderSuccessPage(paper.title, zoteroUrl), corsHeaders);
+  // Also add to Capacities if configured
+  let capacitiesResult = null;
+  if (env.CAPACITIES_API_TOKEN && env.CAPACITIES_SPACE_ID) {
+    capacitiesResult = await addToCapacities(paper, env);
+  }
+
+  return htmlResponse(renderSuccessPage(paper.title, zoteroUrl, capacitiesResult), corsHeaders);
 }
 
 /**
@@ -224,6 +235,89 @@ function createZoteroItem(paper) {
   return item;
 }
 
+/**
+ * Add paper to Capacities via save-weblink API
+ */
+async function addToCapacities(paper, env) {
+  try {
+    // Build markdown content with paper details
+    const mdContent = buildCapacitiesMarkdown(paper);
+
+    // Use the paper URL (PubMed or DOI)
+    const paperUrl = paper.doi
+      ? `https://doi.org/${paper.doi}`
+      : paper.url;
+
+    const response = await fetch(`${CAPACITIES_API_BASE}/save-weblink`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.CAPACITIES_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        spaceId: env.CAPACITIES_SPACE_ID,
+        url: paperUrl,
+        titleOverwrite: paper.title,
+        descriptionOverwrite: paper.abstract?.slice(0, 500) || '',
+        mdText: mdContent,
+        tags: ['lit-monitor', paper.journal?.toLowerCase().includes('rxiv') ? 'preprint' : 'journal-article'],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Capacities API error:', response.status, errorText);
+      return { success: false, error: `Capacities error: ${response.status}` };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Capacities error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Build markdown content for Capacities
+ */
+function buildCapacitiesMarkdown(paper) {
+  let md = '';
+
+  // Authors
+  if (paper.authors?.length) {
+    const authorStr = paper.authors.length > 5
+      ? paper.authors.slice(0, 5).join(', ') + ' et al.'
+      : paper.authors.join(', ');
+    md += `**Authors:** ${authorStr}\n\n`;
+  }
+
+  // Journal and date
+  if (paper.journal) {
+    md += `**Journal:** ${paper.journal}`;
+    if (paper.date) {
+      md += ` (${paper.date})`;
+    }
+    md += '\n\n';
+  }
+
+  // DOI
+  if (paper.doi) {
+    md += `**DOI:** [${paper.doi}](https://doi.org/${paper.doi})\n\n`;
+  }
+
+  // Summary (if provided from Claude ranking)
+  if (paper.summary) {
+    md += `## Summary\n${paper.summary}\n\n`;
+  }
+
+  // Abstract
+  if (paper.abstract) {
+    md += `## Abstract\n${paper.abstract}\n`;
+  }
+
+  return md;
+}
+
 // Helper functions
 function jsonResponse(data, corsHeaders, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -262,10 +356,20 @@ function renderHomePage() {
 </html>`;
 }
 
-function renderSuccessPage(title, zoteroUrl) {
+function renderSuccessPage(title, zoteroUrl, capacitiesResult) {
   const viewLink = zoteroUrl
     ? `<p><a href="${zoteroUrl}" target="_blank" style="color: #3498db;">View in Zotero →</a></p>`
     : '';
+
+  // Capacities status
+  let capacitiesStatus = '';
+  if (capacitiesResult) {
+    if (capacitiesResult.success) {
+      capacitiesStatus = '<p style="color: #27ae60;">✓ Also saved to Capacities</p>';
+    } else {
+      capacitiesStatus = `<p style="color: #e67e22;">⚠ Capacities: ${escapeHtml(capacitiesResult.error)}</p>`;
+    }
+  }
 
   return `<!DOCTYPE html>
 <html>
@@ -285,6 +389,7 @@ function renderSuccessPage(title, zoteroUrl) {
   <h1>Added to Zotero!</h1>
   <p class="title">${escapeHtml(title)}</p>
   ${viewLink}
+  ${capacitiesStatus}
   <p><small>You can close this tab.</small></p>
 </body>
 </html>`;

@@ -2,6 +2,7 @@
 Email digest generator for literature monitoring.
 
 Generates HTML email digests of ranked papers and optionally sends via SMTP.
+Supports Capacities integration for saving digests to daily notes.
 """
 
 import base64
@@ -12,6 +13,7 @@ import os
 import smtplib
 import time
 import urllib.parse
+import requests
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -21,6 +23,9 @@ from typing import Optional
 from .config_loader import Config
 from .database import PaperDatabase
 from .sources.pubmed import Paper
+
+
+CAPACITIES_API_BASE = 'https://api.capacities.io'
 
 
 def generate_hmac_signature(data: str, timestamp: str, secret: str) -> str:
@@ -588,6 +593,171 @@ def send_digest_email(
         return False
 
 
+def generate_digest_markdown(
+    papers: list[Paper],
+    config: Config,
+    title: str = "Literature Monitor Digest",
+) -> str:
+    """
+    Generate a Markdown version of the digest for Capacities.
+
+    Args:
+        papers: List of ranked papers (should be sorted by relevance).
+        config: Application config.
+        title: Digest title.
+
+    Returns:
+        Markdown string.
+    """
+    # Categorize papers
+    high_priority = [p for p in papers if p.relevance_score is not None and p.relevance_score >= 0.7]
+    moderate = [p for p in papers if p.relevance_score is not None and 0.4 <= p.relevance_score < 0.7]
+    low_priority = [p for p in papers if p.relevance_score is not None and p.relevance_score < 0.4]
+
+    date_str = datetime.now().strftime("%B %d, %Y")
+
+    md = f"# {title}\n\n"
+    md += f"*{date_str}*\n\n"
+
+    # Stats
+    total = len(papers)
+    md += f"**{total} papers** | "
+    md += f"**{len(high_priority)} high priority** | "
+    md += f"**{len(moderate)} moderate** | "
+    md += f"**{len(low_priority)} low priority**\n\n"
+
+    md += "---\n\n"
+
+    # High Priority
+    if high_priority:
+        md += "## High Priority\n\n"
+        for paper in high_priority:
+            md += _render_paper_markdown(paper, config)
+        md += "\n"
+
+    # Moderate
+    if moderate:
+        md += "## Moderate Relevance\n\n"
+        for paper in moderate[:10]:
+            md += _render_paper_markdown(paper, config)
+        if len(moderate) > 10:
+            md += f"*...and {len(moderate) - 10} more moderate papers.*\n\n"
+
+    # Low Priority (abbreviated)
+    if low_priority:
+        md += f"## Low Priority ({len(low_priority)} papers)\n\n"
+        for paper in low_priority[:5]:
+            md += _render_paper_markdown(paper, config, compact=True)
+        if len(low_priority) > 5:
+            md += f"*...and {len(low_priority) - 5} more low priority papers.*\n\n"
+
+    return md
+
+
+def _render_paper_markdown(
+    paper: Paper,
+    config: Config,
+    compact: bool = False,
+) -> str:
+    """Render a single paper as Markdown."""
+    score = paper.relevance_score or 0
+    score_str = f"{score:.0%}"
+
+    # Authors
+    if len(paper.authors) > 3:
+        authors_str = ", ".join(paper.authors[:3]) + " et al."
+    else:
+        authors_str = ", ".join(paper.authors) if paper.authors else "Unknown authors"
+
+    # Check for watched authors
+    watched = []
+    for author in paper.authors:
+        for wa in config.watched_authors:
+            if wa.lower() in author.lower():
+                watched.append(author)
+                break
+
+    md = f"### [{paper.title}]({paper.url})\n\n"
+    md += f"**Score: {score_str}** | {authors_str}\n\n"
+    md += f"*{paper.journal}* — {paper.pub_date}"
+
+    if watched:
+        md += f" | **Watched:** {', '.join(watched)}"
+
+    if paper.is_open_access:
+        md += " | Open Access"
+
+    md += "\n\n"
+
+    if not compact:
+        if paper.summary:
+            md += f"> {paper.summary}\n\n"
+
+        if paper.ranking_rationale:
+            md += f"*{paper.ranking_rationale}*\n\n"
+
+        if paper.matched_projects:
+            md += f"**Projects:** {', '.join(paper.matched_projects)}\n\n"
+
+    # Links
+    links = [f"[View Paper]({paper.url})"]
+    if paper.doi:
+        links.append(f"[DOI](https://doi.org/{paper.doi})")
+
+    md += " | ".join(links) + "\n\n---\n\n"
+
+    return md
+
+
+def save_to_capacities_daily_note(
+    markdown_content: str,
+    api_token: Optional[str] = None,
+    space_id: Optional[str] = None,
+) -> bool:
+    """
+    Save content to Capacities daily note.
+
+    Args:
+        markdown_content: Markdown text to append to daily note.
+        api_token: Capacities API token (defaults to CAPACITIES_API_TOKEN env var).
+        space_id: Capacities space ID (defaults to CAPACITIES_SPACE_ID env var).
+
+    Returns:
+        True if saved successfully, False otherwise.
+    """
+    api_token = api_token or os.getenv("CAPACITIES_API_TOKEN")
+    space_id = space_id or os.getenv("CAPACITIES_SPACE_ID")
+
+    if not api_token or not space_id:
+        print("Capacities not configured. Set CAPACITIES_API_TOKEN and CAPACITIES_SPACE_ID.")
+        return False
+
+    try:
+        response = requests.post(
+            f"{CAPACITIES_API_BASE}/save-to-daily-note",
+            headers={
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "spaceId": space_id,
+                "mdText": markdown_content,
+                "noTimeStamp": True,  # We include our own header
+            },
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            return True
+        else:
+            print(f"Capacities API error: {response.status_code} - {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"Failed to save to Capacities: {e}")
+        return False
+
+
 def generate_and_save_digest(
     db: PaperDatabase,
     config: Config,
@@ -596,6 +766,7 @@ def generate_and_save_digest(
     output_dir: str = "output",
     send_email: bool = False,
     to_email: Optional[str] = None,
+    save_to_capacities: bool = True,
 ) -> Path:
     """
     Generate a digest from recent ranked papers and save/send it.
@@ -608,6 +779,7 @@ def generate_and_save_digest(
         output_dir: Directory for HTML output.
         send_email: Whether to also send via email.
         to_email: Override recipient (defaults to config/env).
+        save_to_capacities: Whether to save to Capacities daily note.
 
     Returns:
         Path to the saved HTML file.
@@ -653,6 +825,19 @@ def generate_and_save_digest(
                 print("Failed to send email (check SMTP settings)")
         else:
             print("No recipient email configured (set EMAIL_TO)")
+
+    # Optionally save to Capacities daily note
+    if save_to_capacities:
+        capacities_token = os.getenv("CAPACITIES_API_TOKEN")
+        capacities_space = os.getenv("CAPACITIES_SPACE_ID")
+
+        if capacities_token and capacities_space:
+            markdown = generate_digest_markdown(ranked, config, title=title)
+            if save_to_capacities_daily_note(markdown):
+                print("Digest saved to Capacities daily note")
+            else:
+                print("Failed to save to Capacities (check API settings)")
+        # Silently skip if not configured (not everyone uses Capacities)
 
     return output_path
 
