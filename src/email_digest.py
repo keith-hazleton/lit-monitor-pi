@@ -659,7 +659,7 @@ def _render_paper_markdown(
     config: Config,
     compact: bool = False,
 ) -> str:
-    """Render a single paper as Markdown."""
+    """Render a single paper as Markdown (no URLs to avoid Capacities auto-linking)."""
     score = paper.relevance_score or 0
     score_str = f"{score:.0%}"
 
@@ -677,7 +677,7 @@ def _render_paper_markdown(
                 watched.append(author)
                 break
 
-    md = f"### [{paper.title}]({paper.url})\n\n"
+    md = f"### {paper.title}\n\n"
     md += f"**Score: {score_str}** | {authors_str}\n\n"
     md += f"*{paper.journal}* — {paper.pub_date}"
 
@@ -686,6 +686,10 @@ def _render_paper_markdown(
 
     if paper.is_open_access:
         md += " | Open Access"
+
+    # Add DOI as plain text reference (not a link)
+    if paper.doi:
+        md += f" | DOI: {paper.doi}"
 
     md += "\n\n"
 
@@ -699,12 +703,7 @@ def _render_paper_markdown(
         if paper.matched_projects:
             md += f"**Projects:** {', '.join(paper.matched_projects)}\n\n"
 
-    # Links
-    links = [f"[View Paper]({paper.url})"]
-    if paper.doi:
-        links.append(f"[DOI](https://doi.org/{paper.doi})")
-
-    md += " | ".join(links) + "\n\n---\n\n"
+    md += "---\n\n"
 
     return md
 
