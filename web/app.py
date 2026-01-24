@@ -184,7 +184,13 @@ def test_config():
 
 
 if __name__ == '__main__':
+    import socket
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+
     print(f"Config file: {CONFIG_PATH}")
     print(f"Database: {DATA_PATH}")
-    print(f"\nStarting web UI at http://localhost:5000")
-    app.run(debug=True, port=5000)
+    print(f"\nStarting web UI...")
+    print(f"  Local:   http://localhost:5000")
+    print(f"  Network: http://{local_ip}:5000")
+    app.run(host='0.0.0.0', port=5000)
