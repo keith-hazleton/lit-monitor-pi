@@ -30,6 +30,9 @@ wheels/
 data/*.db
 data/*.sqlite
 
+# Logs
+logs/
+
 # IDE
 .idea/
 .vscode/
