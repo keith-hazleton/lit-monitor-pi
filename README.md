@@ -291,6 +291,10 @@ This Pi edition differs from the [main lit-monitor](https://github.com/keith-haz
 | Hosting | Serverless | Self-hosted |
 | Setup complexity | Fork + secrets | Clone + cron |
 
+## Contributing
+
+This is a personal project shared publicly in case others find it useful. I make no guarantees about functionality or ongoing maintenance. Feedback is welcome, but I can't promise timely responses. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
 ## License
 
 MIT License - feel free to fork and adapt for your research needs.
