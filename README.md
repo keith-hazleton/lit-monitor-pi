@@ -10,7 +10,12 @@ An automated literature monitoring tool for researchers, designed to run on a Ra
 - **Email Digest**: HTML email with papers organized by priority (high/moderate/low)
 - **One-Click Zotero**: Signed links to add papers directly to your Zotero library (via Cloudflare Worker)
 - **Capacities Integration**: Save papers to your Capacities workspace via the Cloudflare Worker
-- **Web UI**: Flask-based interface for editing search queries and settings
+- **Feedback Loop**: Star or dismiss papers from the digest email or web UI; future rankings learn from your preferences
+- **Seed Papers**: Import key papers by DOI or PMID to teach the system your interests
+- **Config Suggestions**: AI analyzes your feedback to suggest new search terms, keywords, and authors
+- **Zotero Library Sync**: Import papers from your Zotero library as seed papers
+- **Digest Deduplication**: Papers only appear in a digest once, even across weekly runs
+- **Web UI**: Flask-based interface for config, paper feedback, seed papers, and config suggestions
 - **Cron-Based Scheduling**: Runs automatically via cron on your Raspberry Pi
 
 ## Raspberry Pi Setup
@@ -63,6 +68,7 @@ Edit `.env` with your credentials:
 | `SMTP_PASSWORD` | For email | SMTP password or app password |
 | `ZOTERO_WORKER_URL` | For Zotero | Your deployed Cloudflare Worker URL |
 | `SIGNING_SECRET` | For Zotero | HMAC secret (generate with `openssl rand -hex 32`) |
+| `FEEDBACK_API_KEY` | For email feedback | Shared secret with Worker (generate with `openssl rand -hex 32`) |
 | `CAPACITIES_API_TOKEN` | For Capacities | Capacities API token |
 | `CAPACITIES_SPACE_ID` | For Capacities | Capacities space UUID |
 
@@ -179,10 +185,17 @@ npx wrangler deploy
 npx wrangler secret put ZOTERO_API_KEY
 npx wrangler secret put ZOTERO_USER_ID
 npx wrangler secret put SIGNING_SECRET
+npx wrangler secret put FEEDBACK_API_KEY
 # Optional: for Capacities integration
 npx wrangler secret put CAPACITIES_API_TOKEN
 npx wrangler secret put CAPACITIES_SPACE_ID
 ```
+
+You'll also need a KV namespace for feedback storage:
+```bash
+npx wrangler kv namespace create FEEDBACK_KV
+```
+Then update `worker/wrangler.toml` with the returned namespace ID.
 
 Get your Zotero credentials at [zotero.org/settings/keys](https://www.zotero.org/settings/keys).
 
@@ -193,7 +206,7 @@ Add your deployed worker URL:
 ZOTERO_WORKER_URL=https://lit-monitor-zotero.YOUR-SUBDOMAIN.workers.dev
 ```
 
-**Important**: The `SIGNING_SECRET` must be identical in your Pi's `.env` and Cloudflare Worker.
+**Important**: The `SIGNING_SECRET` and `FEEDBACK_API_KEY` must be identical in your Pi's `.env` and Cloudflare Worker.
 
 ## Manual Commands
 
@@ -207,21 +220,29 @@ Run these from the `lit-monitor-pi` directory with venv activated:
 | `python main.py --rank-only --rank-limit N` | Rank up to N unranked papers |
 | `python main.py --digest --days 7` | Generate HTML digest |
 | `python main.py --digest --send-email` | Generate and email digest |
+| `python main.py --add-seed <DOI_OR_PMID>` | Import a seed paper by DOI or PMID |
+| `python main.py --suggest-config` | Generate config suggestions from feedback |
+| `python main.py --sync-zotero` | Import Zotero library as seed papers |
+| `python main.py --sync-zotero --zotero-tag TAG` | Sync only Zotero items with a specific tag |
+| `python main.py --sync-feedback` | Pull pending feedback from Cloudflare Worker |
 | `python main.py --stats` | Show database statistics |
-| `python -m web.app` | Start Flask config editor |
+| `python -m web.app` | Start Flask web UI |
 
-## Web UI for Configuration
+## Web UI
 
-The Flask web UI provides an easy way to edit your search parameters:
+The Flask web UI provides multiple pages accessible at `http://<pi-ip-address>:5000`:
 
 ```bash
 source venv/bin/activate
 python -m web.app
 ```
 
-Access at `http://<pi-ip-address>:5000` from another device on your network.
-
-**Note**: For remote access, you may need to modify `web/app.py` to bind to `0.0.0.0` instead of `127.0.0.1`.
+| Page | URL | Description |
+|------|-----|-------------|
+| Config | `/` | Edit search queries, projects, authors, journal weights, and settings |
+| Papers | `/papers` | Browse ranked papers with star/dismiss feedback buttons |
+| Seeds | `/seeds` | Import seed papers by DOI or PMID to teach the system your interests |
+| Suggestions | `/suggestions` | Review and accept/dismiss AI-generated config improvement suggestions |
 
 ## Project Structure
 
@@ -231,18 +252,27 @@ lit-monitor-pi/
 │   └── config.yaml          # Your research configuration
 ├── src/
 │   ├── config_loader.py     # YAML config parser
+│   ├── config_suggester.py  # AI config improvement suggestions
 │   ├── database.py          # SQLite database layer
-│   ├── email_digest.py      # HTML digest generator
-│   ├── ranker.py            # Claude AI ranking
+│   ├── email_digest.py      # HTML digest generator + feedback links
+│   ├── feedback.py          # Feedback prompt builder + Worker sync
+│   ├── paper_lookup.py      # DOI/PMID lookup for seed papers
+│   ├── ranker.py            # Claude AI ranking (feedback-informed)
+│   ├── zotero_sync.py       # Zotero library import
 │   └── sources/
 │       ├── pubmed.py        # PubMed E-utilities client
 │       └── biorxiv.py       # bioRxiv API client
 ├── web/
-│   ├── app.py               # Flask web UI
-│   ├── templates/           # HTML templates
-│   └── static/              # CSS styles
+│   ├── app.py               # Flask web UI (config, papers, seeds, suggestions)
+│   ├── templates/
+│   │   ├── index.html       # Config editor
+│   │   ├── papers.html      # Paper list with feedback
+│   │   ├── seeds.html       # Seed paper import
+│   │   └── suggestions.html # Config suggestions
+│   └── static/
+│       └── style.css        # Shared styles
 ├── worker/
-│   └── src/index.js         # Cloudflare Worker for Zotero
+│   └── src/index.js         # Cloudflare Worker (Zotero + feedback)
 ├── data/
 │   └── papers.db            # SQLite database (persists on Pi)
 ├── output/
