@@ -136,15 +136,16 @@ chmod +x run_weekly.sh
 crontab -e
 ```
 
-Add this line to run every Monday at 8am:
+Add a line with the full absolute path to the script (do not use `~`):
 
 ```
-0 8 * * 1 /home/pi/lit-monitor-pi/run_weekly.sh
+0 7 * * 0 /home/pi/projects/lit-monitor-pi/run_weekly.sh
 ```
 
-Adjust the path and schedule as needed. Cron schedule format: `minute hour day-of-month month day-of-week`
+Adjust the path (`echo $HOME` to check) and schedule as needed. Cron schedule format: `minute hour day-of-month month day-of-week`
 
 Examples:
+- `0 7 * * 0` - Every Sunday at 7:00 AM
 - `0 8 * * 1` - Every Monday at 8:00 AM
 - `0 6 * * *` - Every day at 6:00 AM
 - `0 8 * * 1,4` - Every Monday and Thursday at 8:00 AM
@@ -294,7 +295,7 @@ The `SIGNING_SECRET` must match in both places:
 Add an `NCBI_API_KEY` to increase rate limits from 3 to 10 requests/second.
 
 ### Email not sending
-For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) instead of your regular password.
+For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) instead of your regular password. For iCloud custom domain, use `smtp.mail.me.com` as the SMTP host and generate an app-specific password at [appleid.apple.com](https://appleid.apple.com).
 
 ### Cron job not running
 Check cron logs:
