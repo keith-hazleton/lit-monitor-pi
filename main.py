@@ -425,6 +425,11 @@ def main():
         action="store_true",
         help="Sync feedback from Cloudflare Worker",
     )
+    parser.add_argument(
+        "--daily-json",
+        action="store_true",
+        help="Export top papers from last day as JSON for Morning Edition",
+    )
 
     args = parser.parse_args()
 
@@ -466,6 +471,36 @@ def main():
         from src.feedback import sync_worker_feedback
         count = sync_worker_feedback(db)
         print(f"Synced {count} feedback entries from Worker")
+        return
+
+    # Daily JSON export for Morning Edition
+    if args.daily_json:
+        import json
+        papers = db.get_recent_papers(days=1, min_score=0.5)
+        # Also check last 2 days in case the daily run found papers yesterday
+        if len(papers) < 5:
+            papers = db.get_recent_papers(days=2, min_score=0.5)
+        # Take top 5 by relevance score
+        ranked = [p for p in papers if p.relevance_score is not None]
+        ranked.sort(key=lambda p: p.relevance_score, reverse=True)
+        top = ranked[:5]
+
+        output = []
+        for p in top:
+            output.append({
+                "title": p.title,
+                "authors": ", ".join(p.authors[:3]) + ("..." if len(p.authors) > 3 else ""),
+                "journal": p.journal,
+                "url": p.url,
+                "summary": p.summary,
+                "relevance_score": round(p.relevance_score, 2) if p.relevance_score else None,
+            })
+
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "daily-digest.json"
+        output_path.write_text(json.dumps(output, indent=2))
+        print(f"Exported {len(output)} papers to {output_path}")
         return
 
     # Suggest config
